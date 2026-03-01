@@ -1,4 +1,18 @@
 // --- WORDBOOM Core Script ---
+// Now using Firebase Cloud Functions for secure and automated GPT extraction.
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
+
+// --- Firebase Configuration ---
+// Note: In a production app, you would use your real config here.
+const firebaseConfig = {
+  projectId: "wordboom", // Update this with your actual Firebase Project ID
+};
+
+const app = initializeApp(firebaseConfig);
+const functions = getFunctions(app);
+const extractWordsFunc = httpsCallable(functions, 'extractWords');
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- State ---
@@ -40,46 +54,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const gameScoreDisplay = document.getElementById('game-score');
     const gameModeSelect = document.getElementById('game-mode-select');
 
-    const settingsBtn = document.getElementById('settings-btn');
-    const settingsModal = document.getElementById('settings-modal');
-    const closeSettings = document.getElementById('close-settings');
-    const saveSettings = document.getElementById('save-settings');
-    const apiKeyInput = document.getElementById('api-key-input');
-
-    // --- Settings Logic ---
-    apiKeyInput.value = localStorage.getItem('openai_api_key') || '';
-
-    settingsBtn.addEventListener('click', () => settingsModal.classList.remove('hidden'));
-    closeSettings.addEventListener('click', () => settingsModal.classList.add('hidden'));
-    saveSettings.addEventListener('click', () => {
-        localStorage.setItem('openai_api_key', apiKeyInput.value.trim());
-        settingsModal.classList.add('hidden');
-        alert('API 키가 저장되었습니다.');
-    });
-
-    // --- 1. AI Extraction with GPT-4o mini ---
+    // --- 1. AI Extraction (Now Automated via Cloud Functions) ---
     imageUpload.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
-        const apiKey = localStorage.getItem('openai_api_key');
-        if (!apiKey) {
-            alert('먼저 설정(⚙️)에서 OpenAI API Key를 입력해주세요.');
-            settingsModal.classList.remove('hidden');
-            imageUpload.value = '';
-            return;
-        }
-
         // Show loading
         uploadStatus.classList.remove('hidden');
         dataEditContainer.classList.add('hidden');
-        uploadStatus.querySelector('p').textContent = 'GPT-4o mini가 이미지를 분석 중입니다...';
+        uploadStatus.querySelector('p').textContent = 'GPT-4o mini가 데이터를 분석 중입니다...';
 
         try {
             const base64Image = await fileToBase64(file);
-            const extractedWords = await extractWordsWithGPT(base64Image, apiKey);
             
-            wordData = extractedWords;
+            // Call the Firebase Function
+            const result = await extractWordsFunc({ image: base64Image });
+            
+            // Result structure: result.data.words
+            wordData = result.data.words.map(item => ({
+                word: item.word,
+                meaning: item.mean
+            }));
+
             renderTable();
             renderPreview();
             updateStats();
@@ -89,7 +85,7 @@ document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
         } catch (error) {
             console.error(error);
-            alert('분석 중 오류가 발생했습니다: ' + error.message);
+            alert('AI 분석 중 오류가 발생했습니다. (Firebase Functions)');
             uploadStatus.classList.add('hidden');
         }
     });
@@ -101,55 +97,6 @@ document.addEventListener('DOMContentLoaded', () => {
             reader.onload = () => resolve(reader.result);
             reader.onerror = error => reject(error);
         });
-    }
-
-    async function extractWordsWithGPT(base64Image, apiKey) {
-        const prompt = `너는 단어장 이미지 전문 스캐너야. 이 이미지에서 영단어와 한국어 뜻을 추출해줘.
-
-규칙:
-오타가 있다면 문맥에 맞게 수정해 (예: 'apple'이 'appe'로 보이면 'apple'로 수정).
-결과는 반드시 다른 설명 없이 오직 JSON 형식으로만 출력해.
-JSON 구조: { "words": [{"word": "단어", "mean": "뜻"}] }
-만약 단어와 뜻이 매칭되지 않는 텍스트는 무시해.`;
-
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                    {
-                        role: 'user',
-                        content: [
-                            { type: 'text', text: prompt },
-                            {
-                                type: 'image_url',
-                                image_url: { url: base64Image }
-                            }
-                        ]
-                    }
-                ],
-                response_format: { type: "json_object" },
-                max_tokens: 2000
-            })
-        });
-
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error?.message || 'API 호출 실패');
-        }
-
-        const result = await response.json();
-        const content = JSON.parse(result.choices[0].message.content);
-        
-        // Map "mean" to "meaning" to match existing state structure
-        return content.words.map(item => ({
-            word: item.word,
-            meaning: item.mean
-        }));
     }
 
     function renderTable() {
