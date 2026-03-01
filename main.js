@@ -1,222 +1,203 @@
-// --- WORDBOOM Main Script ---
+// --- WORDBOOM Core Script ---
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- State ---
-    let wordList = []; // Array of {word, meaning}
-    let currentDoc = null; // Store current jsPDF instance
+    let wordData = []; // [{word: 'apple', meaning: '사과'}]
+    let currentTestMode = 'word-test'; // 'word-test' or 'meaning-test'
+    let currentPreviewView = 'exam'; // 'exam' or 'answer'
+    
+    // Game State
     let gameState = {
+        isPlaying: false,
         score: 0,
         enemies: [],
-        isPlaying: false,
-        mode: 'word-mode', 
-        lastTime: 0,
-        spawnTimer: 0
+        spawnInterval: 2000,
+        lastSpawn: 0,
+        speed: 1.0,
+        mode: 'word' // 'word' (type the word) or 'meaning' (type the meaning)
     };
 
     // --- DOM Elements ---
     const imageUpload = document.getElementById('image-upload');
-    const previewImage = document.getElementById('preview-image');
-    const uploadPreview = document.getElementById('upload-preview');
-    const ocrLoader = document.getElementById('ocr-loader');
-    const wordListContainer = document.getElementById('word-list-container');
-    const todayWordsUl = document.getElementById('today-words');
-    const generatePdfBtn = document.getElementById('generate-pdf');
-    const testTypeSelect = document.getElementById('test-type');
-    const testTitleInput = document.getElementById('test-title');
-    const addWordBtn = document.getElementById('add-word-btn');
+    const uploadStatus = document.getElementById('upload-status');
+    const dataEditContainer = document.getElementById('data-edit-container');
+    const wordTableBody = document.getElementById('word-table-body');
+    const addRowBtn = document.getElementById('add-row-btn');
+    const wordCountBadge = document.getElementById('word-count-badge');
 
-    const pdfModal = document.getElementById('pdf-modal');
-    const pdfFrame = document.getElementById('pdf-frame');
-    const closeModalBtn = document.getElementById('close-modal');
+    const previewContent = document.getElementById('preview-content');
+    const totalCountSpans = document.querySelectorAll('.total-count');
+    const tabBtns = document.querySelectorAll('.tab-btn');
     const downloadPdfBtn = document.getElementById('download-pdf-btn');
 
     const gameCanvas = document.getElementById('game-canvas');
     const ctx = gameCanvas.getContext('2d');
     const gameInput = document.getElementById('game-input');
     const startGameBtn = document.getElementById('start-game-btn');
-    const gameStartOverlay = document.getElementById('game-start-overlay');
+    const gameOverlay = document.getElementById('game-overlay');
     const gameScoreDisplay = document.getElementById('game-score');
-    const gameModeSelect = document.getElementById('game-mode');
-    const currentModeBadge = document.getElementById('current-mode');
+    const gameModeSelect = document.getElementById('game-mode-select');
 
-    // --- 1. AI Word Extraction with Tesseract.js ---
+    // --- 1. AI Extraction (Step 1) ---
     imageUpload.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
-        // Show image preview
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            previewImage.src = event.target.result;
-            uploadPreview.classList.remove('hidden');
-        };
-        reader.readAsDataURL(file);
+        // Show loading
+        uploadStatus.classList.remove('hidden');
+        dataEditContainer.classList.add('hidden');
 
-        // OCR Processing
-        ocrLoader.classList.remove('hidden');
-        wordListContainer.classList.add('hidden');
-        
-        try {
-            const worker = await Tesseract.createWorker({
-                logger: m => {
-                    if (m.status === 'recognizing text') {
-                        document.getElementById('loader-text').textContent = `AI가 단어를 분석 중입니다... ${(m.progress * 100).toFixed(0)}%`;
-                    }
-                }
-            });
-            await worker.loadLanguage('eng+kor');
-            await worker.initialize('eng+kor');
+        // Mocking AI Extraction (GPT-4o mini via Cloud Functions)
+        // In a real app, you'd upload to Firebase and call the function.
+        setTimeout(() => {
+            const mockData = [
+                { word: 'Pragmatic', meaning: '실용적인' },
+                { word: 'Eloquent', meaning: '유창한' },
+                { word: 'Resilient', meaning: '회복력 있는' },
+                { word: 'Ambiguous', meaning: '모호한' },
+                { word: 'Meticulous', meaning: '꼼꼼한' }
+            ];
             
-            // Layout analysis helps find columns
-            const { data: { lines } } = await worker.recognize(file);
-            const extractedWords = [];
-
-            lines.forEach(line => {
-                // Heuristic: Try to split by common delimiters or large spaces
-                const text = line.text.trim();
-                if (text.length < 3) return;
-
-                // Split by colon, dash, or multiple spaces
-                let parts = text.split(/[:\-\t]|\s{2,}/);
-                if (parts.length >= 2) {
-                    const word = parts[0].trim();
-                    const meaning = parts.slice(1).join(' ').trim();
-                    if (word && meaning) {
-                        extractedWords.push({ word, meaning });
-                    }
-                } else {
-                    // Fallback for single line without clear delimiter
-                    // (Might be just a word or a meaning, user can edit)
-                    extractedWords.push({ word: text, meaning: '' });
-                }
-            });
-
-            await worker.terminate();
-
-            if (extractedWords.length > 0) {
-                updateWordList(extractedWords);
-            } else {
-                alert('이미지에서 단어를 찾지 못했습니다. 직접 추가하거나 다른 이미지를 시도해 보세요.');
-                updateWordList([{ word: '', meaning: '' }]);
-            }
-        } catch (error) {
-            console.error(error);
-            alert('AI 분석 중 오류가 발생했습니다.');
-        } finally {
-            ocrLoader.classList.add('hidden');
-            wordListContainer.classList.remove('hidden');
-            document.getElementById('loader-text').textContent = "AI가 단어를 분석 중입니다...";
-        }
+            wordData = mockData;
+            renderTable();
+            renderPreview();
+            updateStats();
+            
+            uploadStatus.classList.add('hidden');
+            dataEditContainer.classList.remove('hidden');
+            lucide.createIcons();
+        }, 2000);
     });
 
-    function updateWordList(words) {
-        wordList = words;
-        renderWordList();
-    }
-
-    function renderWordList() {
-        todayWordsUl.innerHTML = '';
-        wordList.forEach((item, index) => {
-            const li = document.createElement('li');
-            li.className = 'word-item fade-in';
-            li.innerHTML = `
-                <input type="text" value="${item.word}" data-index="${index}" data-type="word" placeholder="단어">
-                <input type="text" value="${item.meaning}" data-index="${index}" data-type="meaning" placeholder="뜻">
-                <button class="delete-btn" data-index="${index}">✕</button>
+    function renderTable() {
+        wordTableBody.innerHTML = '';
+        wordData.forEach((item, index) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><input type="text" value="${item.word}" data-index="${index}" data-key="word"></td>
+                <td><input type="text" value="${item.meaning}" data-index="${index}" data-key="meaning"></td>
+                <td><button class="btn-delete" data-index="${index}"><i data-lucide="trash-2"></i></button></td>
             `;
-            todayWordsUl.appendChild(li);
+            wordTableBody.appendChild(row);
+        });
+        
+        // Table events
+        wordTableBody.querySelectorAll('input').forEach(input => {
+            input.addEventListener('input', (e) => {
+                const { index, key } = e.target.dataset;
+                wordData[index][key] = e.target.value;
+                renderPreview();
+            });
+        });
+
+        wordTableBody.querySelectorAll('.btn-delete').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const index = e.currentTarget.dataset.index;
+                wordData.splice(index, 1);
+                renderTable();
+                renderPreview();
+                updateStats();
+                lucide.createIcons();
+            });
         });
     }
 
-    todayWordsUl.addEventListener('input', (e) => {
-        const index = e.target.dataset.index;
-        const type = e.target.dataset.type;
-        wordList[index][type] = e.target.value;
+    addRowBtn.addEventListener('click', () => {
+        wordData.push({ word: '', meaning: '' });
+        renderTable();
+        updateStats();
+        lucide.createIcons();
     });
 
-    todayWordsUl.addEventListener('click', (e) => {
-        if (e.target.classList.contains('delete-btn')) {
-            const index = e.target.dataset.index;
-            wordList.splice(index, 1);
-            renderWordList();
-        }
+    function updateStats() {
+        wordCountBadge.textContent = `${wordData.length} words`;
+        totalCountSpans.forEach(s => s.textContent = wordData.length);
+    }
+
+    // --- 2. Preview Logic (Step 2) ---
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const parent = btn.parentElement;
+            parent.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            if (btn.dataset.mode) currentTestMode = btn.dataset.mode;
+            if (btn.dataset.view) currentPreviewView = btn.dataset.view;
+            
+            renderPreview();
+        });
     });
 
-    addWordBtn.addEventListener('click', () => {
-        wordList.push({ word: '', meaning: '' });
-        renderWordList();
-    });
-
-    // --- 2. PDF Preview & Generation ---
-    generatePdfBtn.addEventListener('click', () => {
-        if (wordList.length === 0) {
-            alert('먼저 단어를 추출하거나 추가해주세요!');
+    function renderPreview() {
+        if (wordData.length === 0) {
+            previewContent.innerHTML = '<p class="placeholder-text">단어를 먼저 추출해주세요.</p>';
             return;
         }
 
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
-        const testType = testTypeSelect.value;
-        const title = testTitleInput.value || '오늘의 단어 테스트';
+        previewContent.innerHTML = '';
+        wordData.forEach((item, i) => {
+            const row = document.createElement('div');
+            row.className = 'preview-row';
+            
+            const questionText = currentTestMode === 'word-test' ? item.meaning : item.word;
+            const answerText = currentTestMode === 'word-test' ? item.word : item.meaning;
 
-        // Page 1: Test Sheet
-        generatePage(doc, title, testType, false);
-        
-        // Page 2: Answer Key
-        doc.addPage();
-        generatePage(doc, `${title} (정답지)`, testType, true);
-
-        currentDoc = doc;
-        const blobUri = doc.output('bloburl');
-        pdfFrame.src = blobUri;
-        pdfModal.classList.remove('hidden');
-    });
-
-    closeModalBtn.addEventListener('click', () => {
-        pdfModal.classList.add('hidden');
-        pdfFrame.src = '';
-    });
+            row.innerHTML = `
+                <span class="num">${i + 1}.</span>
+                <span class="q">${questionText}</span>
+                <span class="a ${currentPreviewView === 'answer' ? 'answer-text' : ''}">
+                    ${currentPreviewView === 'answer' ? answerText : ''}
+                </span>
+            `;
+            previewContent.appendChild(row);
+        });
+    }
 
     downloadPdfBtn.addEventListener('click', () => {
-        if (currentDoc) {
-            const title = testTitleInput.value || '오늘의 단어 테스트';
-            currentDoc.save(`${title}.pdf`);
-        }
-    });
-
-    function generatePage(doc, title, type, isAnswerKey) {
-        doc.setFontSize(22);
-        doc.setTextColor(60, 60, 60);
-        doc.text(title, 105, 20, { align: 'center' });
+        if (wordData.length === 0) return alert('단어를 입력해주세요.');
         
-        doc.setFontSize(10);
-        doc.text(`일시: ${new Date().toLocaleDateString()} | 성명: __________ | 점수: ____ / ${wordList.length}`, 105, 30, { align: 'center' });
-
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        
+        // Add Title
+        doc.setFontSize(20);
+        doc.text('WORDBOOM 단어 테스트', 105, 20, { align: 'center' });
+        
+        // Add Table
         const headers = [['No.', 'Question', 'Answer']];
-        const data = wordList.map((item, i) => {
-            const question = type === 'word-test' ? item.meaning : item.word;
-            const answer = type === 'word-test' ? item.word : item.meaning;
-            return [i + 1, question, isAnswerKey ? answer : ''];
-        });
+        const data = wordData.map((item, i) => [
+            i + 1, 
+            currentTestMode === 'word-test' ? item.meaning : item.word,
+            ''
+        ]);
 
         doc.autoTable({
             startY: 40,
             head: headers,
             body: data,
-            theme: 'striped',
-            headStyles: { fillColor: [99, 102, 241], textColor: 255 },
-            styles: { fontSize: 12, cellPadding: 5 },
-            columnStyles: {
-                0: { cellWidth: 20 },
-                1: { cellWidth: 80 },
-                2: { cellWidth: 80 }
-            }
+            theme: 'striped'
         });
-    }
 
-    // --- 3. Game Logic: Enemy Defeat ---
+        // Add Answer Key on new page
+        doc.addPage();
+        doc.text('정답지', 105, 20, { align: 'center' });
+        const answerData = wordData.map((item, i) => [
+            i + 1,
+            currentTestMode === 'word-test' ? item.meaning : item.word,
+            currentTestMode === 'word-test' ? item.word : item.meaning
+        ]);
+        doc.autoTable({
+            startY: 40,
+            head: headers,
+            body: answerData
+        });
+
+        doc.save('wordboom-test.pdf');
+    });
+
+    // --- 3. Word Bomb Game Logic (Step 3) ---
     function resizeCanvas() {
-        const rect = gameCanvas.parentNode.getBoundingClientRect();
+        const rect = gameCanvas.parentElement.getBoundingClientRect();
         gameCanvas.width = rect.width;
         gameCanvas.height = rect.height;
     }
@@ -224,120 +205,122 @@ document.addEventListener('DOMContentLoaded', () => {
     resizeCanvas();
 
     class Enemy {
-        constructor(word, meaning, mode) {
-            this.word = word;
-            this.meaning = meaning;
-            this.targetText = mode === 'word-mode' ? meaning : word;
-            this.answerText = mode === 'word-mode' ? word : meaning;
-            this.x = gameCanvas.width;
-            this.y = Math.random() * (gameCanvas.height - 60) + 30;
-            this.speed = 1.2 + (Math.random() * 0.8);
-            this.color = `oklch(70% 0.2 ${Math.random() * 360})`;
+        constructor(wordObj, mode) {
+            this.word = wordObj.word;
+            this.meaning = wordObj.meaning;
+            this.mode = mode;
+            this.display = mode === 'word' ? this.meaning : this.word;
+            this.answer = mode === 'word' ? this.word : this.meaning;
+            
+            this.x = Math.random() * (gameCanvas.width - 150) + 75;
+            this.y = -50;
+            this.speed = gameState.speed + Math.random() * 0.5;
+            this.color = `hsl(${Math.random() * 360}, 70%, 70%)`;
         }
 
         update() {
-            this.x -= this.speed;
+            this.y += this.speed;
         }
 
         draw() {
-            ctx.fillStyle = 'rgba(255,255,255,0.1)';
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            
+            // Draw bomb body
+            ctx.beginPath();
+            ctx.arc(0, 0, 30, 0, Math.PI * 2);
+            ctx.fillStyle = '#1e293b';
+            ctx.fill();
             ctx.strokeStyle = this.color;
-            ctx.lineWidth = 2;
-            const boxWidth = ctx.measureText(this.targetText).width + 30;
-            roundRect(ctx, this.x, this.y - 20, boxWidth, 40, 10, true, true);
-            ctx.fillStyle = 'white';
-            ctx.font = 'bold 16px Pretendard';
-            ctx.textAlign = 'center';
-            ctx.fillText(this.targetText, this.x + boxWidth/2, this.y + 6);
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = this.color;
-        }
-    }
+            ctx.lineWidth = 3;
+            ctx.stroke();
 
-    function roundRect(ctx, x, y, width, height, radius, fill, stroke) {
-        ctx.beginPath();
-        ctx.moveTo(x + radius, y);
-        ctx.lineTo(x + width - radius, y);
-        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-        ctx.lineTo(x + width, y + height - radius);
-        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-        ctx.lineTo(x + radius, y + height);
-        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-        ctx.lineTo(x, y + radius);
-        ctx.quadraticCurveTo(x, y, x + radius, y);
-        ctx.closePath();
-        if (fill) ctx.fill();
-        if (stroke) ctx.stroke();
-        ctx.shadowBlur = 0;
+            // Text
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 14px Pretendard';
+            ctx.textAlign = 'center';
+            ctx.fillText(this.display, 0, 45);
+            
+            ctx.restore();
+        }
     }
 
     function spawnEnemy() {
-        if (wordList.length === 0) return;
-        const validWords = wordList.filter(w => w.word && w.meaning);
-        if (validWords.length === 0) return;
-        const randomWord = validWords[Math.floor(Math.random() * validWords.length)];
-        gameState.enemies.push(new Enemy(randomWord.word, randomWord.meaning, gameState.mode));
+        if (wordData.length === 0) return;
+        const randomWord = wordData[Math.floor(Math.random() * wordData.length)];
+        if (!randomWord.word || !randomWord.meaning) return;
+        gameState.enemies.push(new Enemy(randomWord, gameState.mode));
     }
 
-    function gameLoop(timestamp) {
+    function gameLoop(time) {
         if (!gameState.isPlaying) return;
-        const deltaTime = timestamp - gameState.lastTime;
-        gameState.lastTime = timestamp;
+
         ctx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
-        gameState.spawnTimer += deltaTime;
-        if (gameState.spawnTimer > 2000) {
+
+        // Spawn
+        if (time - gameState.lastSpawn > gameState.spawnInterval) {
             spawnEnemy();
-            gameState.spawnTimer = 0;
+            gameState.lastSpawn = time;
+            gameState.spawnInterval = Math.max(800, gameState.spawnInterval * 0.98);
+            gameState.speed += 0.01;
         }
+
+        // Update & Draw
         for (let i = gameState.enemies.length - 1; i >= 0; i--) {
-            const enemy = gameState.enemies[i];
-            enemy.update();
-            enemy.draw();
-            if (enemy.x < -200) {
-                endGame();
+            const e = gameState.enemies[i];
+            e.update();
+            e.draw();
+
+            if (e.y > gameCanvas.height + 50) {
+                gameOver();
                 return;
             }
         }
+
         requestAnimationFrame(gameLoop);
     }
 
     function startGame() {
-        const validWords = wordList.filter(w => w.word && w.meaning);
-        if (validWords.length === 0) {
-            alert('게임을 시작하려면 최소 하나 이상의 유효한 단어가 필요합니다!');
-            return;
-        }
-        gameState.isPlaying = true;
-        gameState.score = 0;
-        gameState.enemies = [];
-        gameState.spawnTimer = 0;
-        gameState.lastTime = performance.now();
-        gameState.mode = gameModeSelect.value;
-        gameScoreDisplay.textContent = '0';
-        currentModeBadge.textContent = gameState.mode === 'word-mode' ? 'A모드 (단어입력)' : 'B모드 (뜻입력)';
-        gameStartOverlay.classList.add('hidden');
+        if (wordData.length === 0) return alert('게임을 시작하려면 단어가 필요합니다.');
+        
+        gameState = {
+            isPlaying: true,
+            score: 0,
+            enemies: [],
+            spawnInterval: 2000,
+            lastSpawn: performance.now(),
+            speed: 1.0,
+            mode: gameModeSelect.value
+        };
+
+        gameScoreDisplay.textContent = '0000';
+        gameOverlay.classList.add('hidden');
         gameInput.disabled = false;
         gameInput.value = '';
         gameInput.focus();
+        
         requestAnimationFrame(gameLoop);
     }
 
-    function endGame() {
+    function gameOver() {
         gameState.isPlaying = false;
-        gameStartOverlay.classList.remove('hidden');
+        gameOverlay.classList.remove('hidden');
         gameInput.disabled = true;
-        alert(`게임 종료! 최종 점수: ${gameState.score}`);
+        alert(`Game Over! Final Score: ${gameState.score}`);
     }
 
     gameInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
-            const input = gameInput.value.trim().toLowerCase();
+            const val = gameInput.value.trim().toLowerCase();
             let found = false;
+            
             for (let i = 0; i < gameState.enemies.length; i++) {
-                if (gameState.enemies[i].answerText.trim().toLowerCase() === input) {
+                if (gameState.enemies[i].answer.toLowerCase() === val) {
+                    // Explode!
+                    createExplosion(gameState.enemies[i].x, gameState.enemies[i].y, gameState.enemies[i].color);
                     gameState.enemies.splice(i, 1);
-                    gameState.score += 10;
-                    gameScoreDisplay.textContent = gameState.score;
+                    gameState.score += 100;
+                    gameScoreDisplay.textContent = String(gameState.score).padStart(4, '0');
                     found = true;
                     break;
                 }
@@ -345,6 +328,18 @@ document.addEventListener('DOMContentLoaded', () => {
             gameInput.value = '';
         }
     });
+
+    // Simple particle effect
+    function createExplosion(x, y, color) {
+        // You could add a particle system here for more "Boom"
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(x, y, 60, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.5;
+        ctx.fill();
+        ctx.restore();
+    }
 
     startGameBtn.addEventListener('click', startGame);
 });

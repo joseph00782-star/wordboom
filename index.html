@@ -7,11 +7,11 @@
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&family=Outfit:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&family=Outfit:wght@400;700;800&display=swap" rel="stylesheet">
     <!-- Style -->
     <link rel="stylesheet" href="style.css">
     <!-- Libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
 </head>
@@ -19,137 +19,160 @@
     <div class="bg-gradient"></div>
     <div class="bg-texture"></div>
 
-    <!-- PDF Preview Modal -->
-    <div id="pdf-modal" class="modal hidden">
-        <div class="modal-content glass">
-            <div class="modal-header">
-                <h3>📄 시험지 미리보기</h3>
-                <button id="close-modal" class="close-btn">✕</button>
-            </div>
-            <div class="modal-body">
-                <iframe id="pdf-frame"></iframe>
-            </div>
-            <div class="modal-footer">
-                <button id="download-pdf-btn" class="btn btn-primary">PDF 다운로드</button>
-            </div>
-        </div>
-    </div>
-
     <nav class="navbar">
         <div class="nav-container">
-            <h1 class="logo">WORDBOOM</h1>
+            <h1 class="logo">💣 WORDBOOM</h1>
             <ul class="nav-links">
-                <li><a href="#input-section">Upload</a></li>
-                <li><a href="#output-section">PDF Generate</a></li>
-                <li><a href="#play-section">Game</a></li>
+                <li><a href="#step1-section">1. AI 추출</a></li>
+                <li><a href="#step2-section">2. 시험지 미리보기</a></li>
+                <li><a href="#step3-section">3. 단어 폭탄 게임</a></li>
             </ul>
+            <div class="nav-actions">
+                <span id="word-count-badge" class="badge">0 words</span>
+            </div>
         </div>
     </nav>
 
     <main class="container">
-        <!-- 1. Upload Section -->
-        <section id="input-section" class="card fade-in">
-            <div class="card-header">
-                <span class="step-badge">STEP 1</span>
-                <h2>단어장 사진 업로드</h2>
-                <p>AI가 단어장 속 단어를 읽어 자동으로 목록을 만들어줍니다.</p>
-            </div>
-            
-            <div class="upload-area" id="drop-zone">
-                <div class="upload-icon">📸</div>
-                <p>이미지를 드래그하거나 클릭하여 업로드하세요</p>
-                <input type="file" id="image-upload" accept="image/*" hidden>
-                <button class="btn btn-primary" onclick="document.getElementById('image-upload').click()">파일 선택</button>
+        <!-- Step 1: Input & Data Table -->
+        <section id="step1-section" class="section card fade-in">
+            <div class="section-header">
+                <span class="step-label">Step 1</span>
+                <h2>AI 기반 스마트 추출</h2>
+                <p>단어장 사진을 업로드하면 AI가 단어와 뜻을 자동으로 분류합니다.</p>
             </div>
 
-            <div id="upload-preview" class="preview-container hidden">
-                <img id="preview-image" src="" alt="Preview">
-                <div id="ocr-loader" class="loader hidden">
+            <div class="upload-container" id="drop-zone">
+                <div class="upload-box">
+                    <i data-lucide="image-plus" class="upload-icon"></i>
+                    <p>이미지를 드래그하거나 클릭하여 업로드</p>
+                    <input type="file" id="image-upload" accept="image/*" hidden>
+                    <button class="btn btn-primary" onclick="document.getElementById('image-upload').click()">파일 선택</button>
+                </div>
+                <div id="upload-status" class="status-message hidden">
                     <div class="spinner"></div>
-                    <p id="loader-text">AI가 단어를 분석 중입니다...</p>
+                    <p>GPT-4o mini가 데이터를 분석 중입니다...</p>
                 </div>
             </div>
 
-            <div id="word-list-container" class="word-list-card hidden">
-                <h3>✨ 오늘의 단어 목록</h3>
-                <div class="word-list-header">
-                    <span>단어</span>
-                    <span>뜻</span>
+            <div id="data-edit-container" class="data-table-wrapper hidden">
+                <div class="table-actions">
+                    <h3>📊 추출된 단어 목록</h3>
+                    <button id="add-row-btn" class="btn btn-secondary btn-sm"><i data-lucide="plus"></i> 추가</button>
                 </div>
-                <ul id="today-words" class="word-list"></ul>
-                <div class="word-list-actions">
-                    <button id="add-word-btn" class="btn btn-secondary btn-sm">+ 단어 추가</button>
+                <div class="table-container">
+                    <table id="word-table">
+                        <thead>
+                            <tr>
+                                <th>단어 (Word)</th>
+                                <th>뜻 (Meaning)</th>
+                                <th width="60">삭제</th>
+                            </tr>
+                        </thead>
+                        <tbody id="word-table-body">
+                            <!-- Rows will be added here -->
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </section>
 
-        <!-- 2. PDF Generation Section -->
-        <section id="output-section" class="card fade-in">
-            <div class="card-header">
-                <span class="step-badge">STEP 2</span>
-                <h2>시험지 & 정답지 생성</h2>
-                <p>추출된 단어로 나만의 시험지를 만들어 보세요.</p>
+        <!-- Step 2: Preview & PDF -->
+        <section id="step2-section" class="section card fade-in">
+            <div class="section-header">
+                <span class="step-label">Step 2</span>
+                <h2>시험지 & 정답지 미리보기</h2>
+                <p>PDF로 저장하기 전 실제 시험지 모습을 확인하세요.</p>
             </div>
 
-            <div class="options-grid">
-                <div class="option-item">
-                    <label>시험지 종류</label>
-                    <div class="custom-select">
-                        <select id="test-type">
-                            <option value="word-test">단어 쓰기 (뜻 보고 영단어 쓰기)</option>
-                            <option value="meaning-test">뜻 쓰기 (영단어 보고 뜻 쓰기)</option>
-                        </select>
+            <div class="preview-controls">
+                <div class="control-group">
+                    <label>시험 모드</label>
+                    <div class="tab-buttons">
+                        <button class="tab-btn active" data-mode="word-test">단어 쓰기</button>
+                        <button class="tab-btn" data-mode="meaning-test">뜻 쓰기</button>
                     </div>
                 </div>
-                <div class="option-item">
-                    <label>시험지 제목</label>
-                    <input type="text" id="test-title" placeholder="예: 3월 1일 단어 테스트">
+                <div class="control-group">
+                    <label>화면 전환</label>
+                    <div class="tab-buttons">
+                        <button class="tab-btn active" data-view="exam">시험지</button>
+                        <button class="tab-btn" data-view="answer">정답지</button>
+                    </div>
                 </div>
             </div>
 
-            <button id="generate-pdf" class="btn btn-glow btn-full">PDF 시험지 & 정답지 생성하기</button>
+            <div class="preview-frame glass">
+                <div id="exam-preview" class="preview-paper">
+                    <div class="paper-header">
+                        <h1 id="preview-title">WORDBOOM 단어 테스트</h1>
+                        <div class="paper-info">
+                            <span>날짜: 2026. 03. 01</span>
+                            <span>성명: _________</span>
+                            <span>점수: ____ / <span class="total-count">0</span></span>
+                        </div>
+                    </div>
+                    <div id="preview-content" class="paper-body">
+                        <!-- Preview content rendered by JS -->
+                        <p class="placeholder-text">단어를 먼저 추출해주세요.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section-footer">
+                <button id="download-pdf-btn" class="btn btn-glow btn-full"><i data-lucide="download"></i> PDF 저장하기</button>
+            </div>
         </section>
 
-        <!-- 3. Game Section -->
-        <section id="play-section" class="card fade-in">
-            <div class="card-header">
-                <span class="step-badge">STEP 3</span>
-                <h2>단어 게임: 악당 퇴치</h2>
-                <p>게임을 통해 재미있게 단어를 복습하세요!</p>
+        <!-- Step 3: Game -->
+        <section id="step3-section" class="section card fade-in">
+            <div class="section-header">
+                <span class="step-label">Step 3</span>
+                <h2>단어 폭탄 게임</h2>
+                <p>하늘에서 떨어지는 단어를 맞춰 폭파시키세요!</p>
             </div>
 
-            <div class="game-container">
-                <div class="game-hud">
-                    <div class="score-badge">SCORE: <span id="game-score">0</span></div>
-                    <div class="game-mode-badge" id="current-mode">A모드</div>
+            <div class="game-wrapper">
+                <div class="game-sidebar">
+                    <div class="stat-box">
+                        <span class="label">SCORE</span>
+                        <span id="game-score" class="value">0000</span>
+                    </div>
+                    <div class="game-settings">
+                        <label>게임 모드</label>
+                        <select id="game-mode-select">
+                            <option value="word">영단어 입력</option>
+                            <option value="meaning">뜻 입력</option>
+                        </select>
+                    </div>
+                    <button id="start-game-btn" class="btn btn-primary btn-full">게임 시작</button>
                 </div>
-                <div class="canvas-wrapper">
+                <div class="game-canvas-area glass">
                     <canvas id="game-canvas"></canvas>
-                    <div id="game-start-overlay" class="overlay">
-                        <div class="overlay-content">
+                    <div id="game-overlay" class="game-overlay">
+                        <div class="overlay-msg">
+                            <i data-lucide="play-circle" size="48"></i>
                             <h3>준비되셨나요?</h3>
-                            <div class="game-options">
-                                <select id="game-mode">
-                                    <option value="word-mode">A모드 (단어 입력)</option>
-                                    <option value="meaning-mode">B모드 (뜻 입력)</option>
-                                </select>
-                            </div>
-                            <button id="start-game-btn" class="btn btn-glow">게임 시작</button>
+                            <p>단어를 입력하고 Enter를 누르세요.</p>
                         </div>
                     </div>
                 </div>
-                <div class="game-input-area">
-                    <input type="text" id="game-input" placeholder="정답을 입력하고 Enter를 누르세요" disabled>
+                <div class="game-input-container">
+                    <input type="text" id="game-input" placeholder="정답을 입력하세요..." disabled>
                 </div>
             </div>
         </section>
     </main>
 
     <footer class="footer">
-        <p>&copy; 2026 WORDBOOM. All rights reserved.</p>
+        <p>&copy; 2026 WORDBOOM | Designed for AI Learning</p>
     </footer>
 
     <!-- Scripts -->
     <script type="module" src="main.js"></script>
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+    </script>
 </body>
 </html>
