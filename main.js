@@ -5,9 +5,9 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebas
 import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-functions.js";
 
 // --- Firebase Configuration ---
-// Note: In a production app, you would use your real config here.
+// Update with actual project info if needed, but for now we use the project ID.
 const firebaseConfig = {
-  projectId: "wordboom", // Update this with your actual Firebase Project ID
+  projectId: "wordboom",
 };
 
 const app = initializeApp(firebaseConfig);
@@ -59,10 +59,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const file = e.target.files[0];
         if (!file) return;
 
-        // Show loading
+        // Show loading state
         uploadStatus.classList.remove('hidden');
         dataEditContainer.classList.add('hidden');
-        uploadStatus.querySelector('p').textContent = 'GPT-4o mini가 데이터를 분석 중입니다...';
+        uploadStatus.querySelector('p').textContent = 'GPT-4o mini가 이미지를 분석 중입니다...';
 
         try {
             const base64Image = await fileToBase64(file);
@@ -70,22 +70,31 @@ document.addEventListener('DOMContentLoaded', () => {
             // Call the Firebase Function
             const result = await extractWordsFunc({ image: base64Image });
             
-            // Result structure: result.data.words
-            wordData = result.data.words.map(item => ({
-                word: item.word,
-                meaning: item.mean
-            }));
+            // Check result structure and map to internal state
+            if (result.data && result.data.words) {
+                wordData = result.data.words.map(item => ({
+                    word: item.word || '',
+                    meaning: item.mean || ''
+                }));
 
-            renderTable();
-            renderPreview();
-            updateStats();
-            
-            uploadStatus.classList.add('hidden');
-            dataEditContainer.classList.remove('hidden');
-            lucide.createIcons();
+                renderTable();
+                renderPreview();
+                updateStats();
+                
+                uploadStatus.classList.add('hidden');
+                dataEditContainer.classList.remove('hidden');
+                lucide.createIcons();
+            } else {
+                throw new Error('올바른 응답 형식이 아닙니다.');
+            }
         } catch (error) {
-            console.error(error);
-            alert('AI 분석 중 오류가 발생했습니다. (Firebase Functions)');
+            console.error('Extraction Error:', error);
+            // Detail the error for the user
+            let msg = 'AI 분석 중 오류가 발생했습니다.';
+            if (error.code === 'functions/not-found') msg += '\n(서버 함수가 아직 배포되지 않았습니다.)';
+            if (error.code === 'functions/permission-denied') msg += '\n(권한 오류: API 설정 확인 필요)';
+            
+            alert(msg);
             uploadStatus.classList.add('hidden');
         }
     });
@@ -111,6 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
             wordTableBody.appendChild(row);
         });
         
+        // Input handlers
         wordTableBody.querySelectorAll('input').forEach(input => {
             input.addEventListener('input', (e) => {
                 const { index, key } = e.target.dataset;
@@ -119,6 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
+        // Delete handlers
         wordTableBody.querySelectorAll('.btn-delete').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const index = e.currentTarget.dataset.index;
@@ -177,9 +188,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             row.innerHTML = `
                 <span class="num">${i + 1}.</span>
-                <span class="q">${questionText}</span>
+                <span class="q">${questionText || '______'}</span>
                 <span class="a ${currentPreviewView === 'answer' ? 'answer-text' : ''}">
-                    ${currentPreviewView === 'answer' ? answerText : ''}
+                    ${currentPreviewView === 'answer' ? (answerText || '---') : ''}
                 </span>
             `;
             previewContent.appendChild(row);
@@ -196,7 +207,7 @@ document.addEventListener('DOMContentLoaded', () => {
             format: 'a4'
         });
         
-        const title = testTitleInput.value;
+        const title = testTitleInput.value || 'WORDBOOM 테스트';
         const today = new Date().toLocaleDateString();
 
         const generatePDFPage = (isAnswerKey) => {
@@ -219,25 +230,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: data,
                 theme: 'striped',
                 headStyles: { fillColor: [79, 70, 229] },
-                bodyStyles: { textColor: [31, 41, 55] },
-                alternateRowStyles: { fillColor: [249, 250, 251] },
-                columnStyles: {
-                    0: { cellWidth: 15 },
-                    1: { cellWidth: 85 },
-                    2: { cellWidth: 85 }
-                },
+                styles: { font: 'Pretendard' }, // Note: You might need to add a font to jsPDF for Korean
                 didDrawCell: (data) => {
                     if (isAnswerKey && data.column.index === 2 && data.section === 'body') {
-                        doc.setTextColor(225, 29, 72); // Red for answers
+                        doc.setTextColor(225, 29, 72); 
                     }
                 }
             });
         };
 
-        // Page 1: Exam
         generatePDFPage(false);
-        
-        // Page 2: Answer Key (on a new page)
         doc.addPage();
         generatePDFPage(true);
 
@@ -258,7 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
             this.word = wordObj.word;
             this.meaning = wordObj.meaning;
             this.mode = mode;
-            this.display = mode === 'word' ? this.meaning : this.word;
+            this.display = mode === 'word' ? (this.meaning || '???') : (this.word || '???');
             this.answer = mode === 'word' ? this.word : this.meaning;
             
             this.x = Math.random() * (gameCanvas.width - 150) + 75;
@@ -304,18 +306,10 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.lineWidth = 3;
             ctx.stroke();
 
-            // Reflection
-            ctx.beginPath();
-            ctx.arc(-10, -10, 5, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(255,255,255,0.1)';
-            ctx.fill();
-
             // Text
             ctx.fillStyle = 'white';
             ctx.font = 'bold 15px Pretendard';
             ctx.textAlign = 'center';
-            ctx.shadowColor = 'black';
-            ctx.shadowBlur = 4;
             ctx.fillText(this.display, 0, 5);
             
             ctx.restore();
@@ -324,7 +318,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function spawnEnemy() {
         if (wordData.length === 0) return;
-        const validWords = wordData.filter(w => w.word?.trim() && w.meaning?.trim());
+        const validWords = wordData.filter(w => w.word?.trim() || w.meaning?.trim());
         if (validWords.length === 0) return;
         const randomWord = validWords[Math.floor(Math.random() * validWords.length)];
         gameState.enemies.push(new Enemy(randomWord, gameState.mode));
@@ -335,7 +329,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ctx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
 
-        // Spawn
         if (time - gameState.lastSpawn > gameState.spawnInterval) {
             spawnEnemy();
             gameState.lastSpawn = time;
@@ -343,7 +336,6 @@ document.addEventListener('DOMContentLoaded', () => {
             gameState.speed += 0.005;
         }
 
-        // Update & Draw
         for (let i = gameState.enemies.length - 1; i >= 0; i--) {
             const e = gameState.enemies[i];
             e.update();
@@ -359,7 +351,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function startGame() {
-        const validWords = wordData.filter(w => w.word?.trim() && w.meaning?.trim());
+        const validWords = wordData.filter(w => w.word?.trim() || w.meaning?.trim());
         if (validWords.length === 0) return alert('게임을 시작하려면 최소 한 개의 단어가 필요합니다.');
         
         gameState = {
@@ -391,32 +383,20 @@ document.addEventListener('DOMContentLoaded', () => {
     gameInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             const val = gameInput.value.trim().toLowerCase();
-            let found = false;
-            
+            if (!val) return;
+
             for (let i = 0; i < gameState.enemies.length; i++) {
-                if (gameState.enemies[i].answer.toLowerCase() === val) {
-                    createExplosion(gameState.enemies[i].x, gameState.enemies[i].y, gameState.enemies[i].color);
+                const enemyAnswer = (gameState.enemies[i].answer || '').trim().toLowerCase();
+                if (enemyAnswer === val) {
                     gameState.enemies.splice(i, 1);
                     gameState.score += 100;
                     gameScoreDisplay.textContent = String(gameState.score).padStart(4, '0');
-                    found = true;
                     break;
                 }
             }
             gameInput.value = '';
         }
     });
-
-    function createExplosion(x, y, color) {
-        // Flash effect
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(x, y, 80, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.globalAlpha = 0.4;
-        ctx.fill();
-        ctx.restore();
-    }
 
     startGameBtn.addEventListener('click', startGame);
 });
