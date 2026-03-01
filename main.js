@@ -1,4 +1,8 @@
 // --- WORDBOOM Core Script ---
+// Note: In a production environment, GPT-4o mini would be called via a backend.
+// For this standalone web version, we use Tesseract.js for real on-device OCR.
+
+import Tesseract from 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js';
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- State ---
@@ -11,9 +15,9 @@ document.addEventListener('DOMContentLoaded', () => {
         isPlaying: false,
         score: 0,
         enemies: [],
-        spawnInterval: 2000,
+        spawnInterval: 2500,
         lastSpawn: 0,
-        speed: 1.0,
+        speed: 0.8,
         mode: 'word' // 'word' (type the word) or 'meaning' (type the meaning)
     };
 
@@ -25,6 +29,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const addRowBtn = document.getElementById('add-row-btn');
     const wordCountBadge = document.getElementById('word-count-badge');
 
+    const testTitleInput = document.getElementById('test-title-input');
+    const previewTitle = document.getElementById('preview-title');
     const previewContent = document.getElementById('preview-content');
     const totalCountSpans = document.querySelectorAll('.total-count');
     const tabBtns = document.querySelectorAll('.tab-btn');
@@ -38,7 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const gameScoreDisplay = document.getElementById('game-score');
     const gameModeSelect = document.getElementById('game-mode-select');
 
-    // --- 1. AI Extraction (Step 1) ---
+    // --- 1. Real AI Extraction with Tesseract.js ---
     imageUpload.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -46,19 +52,42 @@ document.addEventListener('DOMContentLoaded', () => {
         // Show loading
         uploadStatus.classList.remove('hidden');
         dataEditContainer.classList.add('hidden');
+        uploadStatus.querySelector('p').textContent = 'AI가 이미지를 분석 중입니다... (Tesseract OCR)';
 
-        // Mocking AI Extraction (GPT-4o mini via Cloud Functions)
-        // In a real app, you'd upload to Firebase and call the function.
-        setTimeout(() => {
-            const mockData = [
-                { word: 'Pragmatic', meaning: '실용적인' },
-                { word: 'Eloquent', meaning: '유창한' },
-                { word: 'Resilient', meaning: '회복력 있는' },
-                { word: 'Ambiguous', meaning: '모호한' },
-                { word: 'Meticulous', meaning: '꼼꼼한' }
-            ];
+        try {
+            const result = await Tesseract.recognize(file, 'eng+kor', {
+                logger: m => {
+                    if (m.status === 'recognizing text') {
+                        uploadStatus.querySelector('p').textContent = `분석 중: ${Math.round(m.progress * 100)}%`;
+                    }
+                }
+            });
+
+            const text = result.data.text;
+            const lines = text.split('\n').filter(line => line.trim().length > 0);
             
-            wordData = mockData;
+            const extracted = [];
+            lines.forEach(line => {
+                // Heuristic parsing: split by common delimiters
+                let parts = line.split(/[:\-\t]|\s{2,}/);
+                if (parts.length >= 2) {
+                    extracted.push({
+                        word: parts[0].trim(),
+                        meaning: parts.slice(1).join(' ').trim()
+                    });
+                } else {
+                    // Try space-based split if only one delimiter-less line
+                    let words = line.trim().split(/\s+/);
+                    if (words.length >= 2) {
+                        extracted.push({
+                            word: words[0],
+                            meaning: words.slice(1).join(' ')
+                        });
+                    }
+                }
+            });
+
+            wordData = extracted.length > 0 ? extracted : [{word: '', meaning: ''}];
             renderTable();
             renderPreview();
             updateStats();
@@ -66,7 +95,11 @@ document.addEventListener('DOMContentLoaded', () => {
             uploadStatus.classList.add('hidden');
             dataEditContainer.classList.remove('hidden');
             lucide.createIcons();
-        }, 2000);
+        } catch (error) {
+            console.error(error);
+            alert('이미지 분석 중 오류가 발생했습니다.');
+            uploadStatus.classList.add('hidden');
+        }
     });
 
     function renderTable() {
@@ -81,7 +114,6 @@ document.addEventListener('DOMContentLoaded', () => {
             wordTableBody.appendChild(row);
         });
         
-        // Table events
         wordTableBody.querySelectorAll('input').forEach(input => {
             input.addEventListener('input', (e) => {
                 const { index, key } = e.target.dataset;
@@ -115,6 +147,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- 2. Preview Logic (Step 2) ---
+    testTitleInput.addEventListener('input', () => {
+        previewTitle.textContent = testTitleInput.value;
+    });
+
     tabBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             const parent = btn.parentElement;
@@ -157,42 +193,58 @@ document.addEventListener('DOMContentLoaded', () => {
         if (wordData.length === 0) return alert('단어를 입력해주세요.');
         
         const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
-        
-        // Add Title
-        doc.setFontSize(20);
-        doc.text('WORDBOOM 단어 테스트', 105, 20, { align: 'center' });
-        
-        // Add Table
-        const headers = [['No.', 'Question', 'Answer']];
-        const data = wordData.map((item, i) => [
-            i + 1, 
-            currentTestMode === 'word-test' ? item.meaning : item.word,
-            ''
-        ]);
-
-        doc.autoTable({
-            startY: 40,
-            head: headers,
-            body: data,
-            theme: 'striped'
+        const doc = new jsPDF({
+            orientation: 'portrait',
+            unit: 'mm',
+            format: 'a4'
         });
+        
+        const title = testTitleInput.value;
+        const today = new Date().toLocaleDateString();
 
-        // Add Answer Key on new page
+        const generatePDFPage = (isAnswerKey) => {
+            doc.setFontSize(22);
+            doc.text(isAnswerKey ? `${title} (정답지)` : title, 105, 20, { align: 'center' });
+            
+            doc.setFontSize(10);
+            doc.text(`일시: ${today} | 성명: __________ | 점수: ____ / ${wordData.length}`, 105, 30, { align: 'center' });
+
+            const headers = [['No.', 'Question', 'Answer']];
+            const data = wordData.map((item, i) => [
+                i + 1, 
+                currentTestMode === 'word-test' ? item.meaning : item.word,
+                isAnswerKey ? (currentTestMode === 'word-test' ? item.word : item.meaning) : ''
+            ]);
+
+            doc.autoTable({
+                startY: 40,
+                head: headers,
+                body: data,
+                theme: 'striped',
+                headStyles: { fillColor: [79, 70, 229] },
+                bodyStyles: { textColor: [31, 41, 55] },
+                alternateRowStyles: { fillColor: [249, 250, 251] },
+                columnStyles: {
+                    0: { cellWidth: 15 },
+                    1: { cellWidth: 85 },
+                    2: { cellWidth: 85 }
+                },
+                didDrawCell: (data) => {
+                    if (isAnswerKey && data.column.index === 2 && data.section === 'body') {
+                        doc.setTextColor(225, 29, 72); // Red for answers
+                    }
+                }
+            });
+        };
+
+        // Page 1: Exam
+        generatePDFPage(false);
+        
+        // Page 2: Answer Key (on a new page)
         doc.addPage();
-        doc.text('정답지', 105, 20, { align: 'center' });
-        const answerData = wordData.map((item, i) => [
-            i + 1,
-            currentTestMode === 'word-test' ? item.meaning : item.word,
-            currentTestMode === 'word-test' ? item.word : item.meaning
-        ]);
-        doc.autoTable({
-            startY: 40,
-            head: headers,
-            body: answerData
-        });
+        generatePDFPage(true);
 
-        doc.save('wordboom-test.pdf');
+        doc.save(`${title}.pdf`);
     });
 
     // --- 3. Word Bomb Game Logic (Step 3) ---
@@ -213,20 +265,42 @@ document.addEventListener('DOMContentLoaded', () => {
             this.answer = mode === 'word' ? this.word : this.meaning;
             
             this.x = Math.random() * (gameCanvas.width - 150) + 75;
-            this.y = -50;
-            this.speed = gameState.speed + Math.random() * 0.5;
-            this.color = `hsl(${Math.random() * 360}, 70%, 70%)`;
+            this.y = -60;
+            this.speed = gameState.speed + Math.random() * 0.4;
+            this.color = `hsl(${Math.random() * 360}, 70%, 60%)`;
+            this.angle = 0;
+            this.pulse = 0;
         }
 
         update() {
             this.y += this.speed;
+            this.angle += 0.02;
+            this.pulse += 0.1;
         }
 
         draw() {
             ctx.save();
             ctx.translate(this.x, this.y);
             
-            // Draw bomb body
+            // Draw Bomb Fuse
+            ctx.beginPath();
+            ctx.moveTo(0, -30);
+            ctx.quadraticCurveTo(10, -40, 5 + Math.sin(this.pulse)*2, -45);
+            ctx.strokeStyle = '#eab308';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Fuse Spark
+            ctx.beginPath();
+            ctx.arc(5 + Math.sin(this.pulse)*2, -45, 3 + Math.sin(this.pulse*2)*1, 0, Math.PI * 2);
+            ctx.fillStyle = '#f97316';
+            ctx.fill();
+
+            // Draw Bomb Cap
+            ctx.fillStyle = '#475569';
+            ctx.fillRect(-10, -35, 20, 10);
+
+            // Draw Bomb Body
             ctx.beginPath();
             ctx.arc(0, 0, 30, 0, Math.PI * 2);
             ctx.fillStyle = '#1e293b';
@@ -235,11 +309,19 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.lineWidth = 3;
             ctx.stroke();
 
+            // Reflection
+            ctx.beginPath();
+            ctx.arc(-10, -10, 5, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255,255,255,0.1)';
+            ctx.fill();
+
             // Text
             ctx.fillStyle = 'white';
-            ctx.font = 'bold 14px Pretendard';
+            ctx.font = 'bold 15px Pretendard';
             ctx.textAlign = 'center';
-            ctx.fillText(this.display, 0, 45);
+            ctx.shadowColor = 'black';
+            ctx.shadowBlur = 4;
+            ctx.fillText(this.display, 0, 5);
             
             ctx.restore();
         }
@@ -247,8 +329,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function spawnEnemy() {
         if (wordData.length === 0) return;
-        const randomWord = wordData[Math.floor(Math.random() * wordData.length)];
-        if (!randomWord.word || !randomWord.meaning) return;
+        const validWords = wordData.filter(w => w.word.trim() && w.meaning.trim());
+        if (validWords.length === 0) return;
+        const randomWord = validWords[Math.floor(Math.random() * validWords.length)];
         gameState.enemies.push(new Enemy(randomWord, gameState.mode));
     }
 
@@ -261,8 +344,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (time - gameState.lastSpawn > gameState.spawnInterval) {
             spawnEnemy();
             gameState.lastSpawn = time;
-            gameState.spawnInterval = Math.max(800, gameState.spawnInterval * 0.98);
-            gameState.speed += 0.01;
+            gameState.spawnInterval = Math.max(1000, gameState.spawnInterval * 0.98);
+            gameState.speed += 0.005;
         }
 
         // Update & Draw
@@ -271,7 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
             e.update();
             e.draw();
 
-            if (e.y > gameCanvas.height + 50) {
+            if (e.y > gameCanvas.height + 60) {
                 gameOver();
                 return;
             }
@@ -281,15 +364,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function startGame() {
-        if (wordData.length === 0) return alert('게임을 시작하려면 단어가 필요합니다.');
+        const validWords = wordData.filter(w => w.word.trim() && w.meaning.trim());
+        if (validWords.length === 0) return alert('게임을 시작하려면 최소 한 개의 단어가 필요합니다.');
         
         gameState = {
             isPlaying: true,
             score: 0,
             enemies: [],
-            spawnInterval: 2000,
+            spawnInterval: 2500,
             lastSpawn: performance.now(),
-            speed: 1.0,
+            speed: 0.8,
             mode: gameModeSelect.value
         };
 
@@ -306,7 +390,7 @@ document.addEventListener('DOMContentLoaded', () => {
         gameState.isPlaying = false;
         gameOverlay.classList.remove('hidden');
         gameInput.disabled = true;
-        alert(`Game Over! Final Score: ${gameState.score}`);
+        alert(`게임 종료! 최종 점수: ${gameState.score}`);
     }
 
     gameInput.addEventListener('keydown', (e) => {
@@ -316,7 +400,6 @@ document.addEventListener('DOMContentLoaded', () => {
             
             for (let i = 0; i < gameState.enemies.length; i++) {
                 if (gameState.enemies[i].answer.toLowerCase() === val) {
-                    // Explode!
                     createExplosion(gameState.enemies[i].x, gameState.enemies[i].y, gameState.enemies[i].color);
                     gameState.enemies.splice(i, 1);
                     gameState.score += 100;
@@ -329,14 +412,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Simple particle effect
     function createExplosion(x, y, color) {
-        // You could add a particle system here for more "Boom"
+        // Flash effect
         ctx.save();
         ctx.beginPath();
-        ctx.arc(x, y, 60, 0, Math.PI * 2);
+        ctx.arc(x, y, 80, 0, Math.PI * 2);
         ctx.fillStyle = color;
-        ctx.globalAlpha = 0.5;
+        ctx.globalAlpha = 0.4;
         ctx.fill();
         ctx.restore();
     }

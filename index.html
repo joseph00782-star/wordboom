@@ -85,19 +85,25 @@
                 <p>PDF로 저장하기 전 실제 시험지 모습을 확인하세요.</p>
             </div>
 
-            <div class="preview-controls">
+            <div class="preview-settings glass">
                 <div class="control-group">
-                    <label>시험 모드</label>
-                    <div class="tab-buttons">
-                        <button class="tab-btn active" data-mode="word-test">단어 쓰기</button>
-                        <button class="tab-btn" data-mode="meaning-test">뜻 쓰기</button>
-                    </div>
+                    <label>시험지 제목</label>
+                    <input type="text" id="test-title-input" placeholder="시험지 제목을 입력하세요 (예: 중학 필수 영단어 1회)" value="WORDBOOM 단어 테스트">
                 </div>
-                <div class="control-group">
-                    <label>화면 전환</label>
-                    <div class="tab-buttons">
-                        <button class="tab-btn active" data-view="exam">시험지</button>
-                        <button class="tab-btn" data-view="answer">정답지</button>
+                <div class="preview-controls">
+                    <div class="control-group">
+                        <label>시험 모드</label>
+                        <div class="tab-buttons">
+                            <button class="tab-btn active" data-mode="word-test">단어 쓰기</button>
+                            <button class="tab-btn" data-mode="meaning-test">뜻 쓰기</button>
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <label>화면 전환</label>
+                        <div class="tab-buttons">
+                            <button class="tab-btn active" data-view="exam">시험지</button>
+                            <button class="tab-btn" data-view="answer">정답지</button>
+                        </div>
                     </div>
                 </div>
             </div>
