@@ -1,14 +1,138 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="ko">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hello World</title>
-  <link href='/style.css' rel='stylesheet'>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WORDBOOM | AI 맞춤형 단어 정복</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&family=Outfit:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Style -->
+    <link rel="stylesheet" href="style.css">
+    <!-- Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
-  <h1>Hello, world!</h1>
-  <button onclick="console.log('hello');">Press me</button>
-  <script defer type="text/javascript" src="/main.js"></script>
+    <div class="bg-gradient"></div>
+    <div class="bg-texture"></div>
+
+    <nav class="navbar">
+        <div class="nav-container">
+            <h1 class="logo">WORDBOOM</h1>
+            <ul class="nav-links">
+                <li><a href="#input-section">Upload</a></li>
+                <li><a href="#output-section">PDF Generate</a></li>
+                <li><a href="#play-section">Game</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <!-- 1. Upload Section -->
+        <section id="input-section" class="card fade-in">
+            <div class="card-header">
+                <span class="step-badge">STEP 1</span>
+                <h2>단어장 사진 업로드</h2>
+                <p>AI가 단어장 속 단어를 읽어 자동으로 목록을 만들어줍니다.</p>
+            </div>
+            
+            <div class="upload-area" id="drop-zone">
+                <div class="upload-icon">📸</div>
+                <p>이미지를 드래그하거나 클릭하여 업로드하세요</p>
+                <input type="file" id="image-upload" accept="image/*" hidden>
+                <button class="btn btn-primary" onclick="document.getElementById('image-upload').click()">파일 선택</button>
+            </div>
+
+            <div id="upload-preview" class="preview-container hidden">
+                <img id="preview-image" src="" alt="Preview">
+                <div id="ocr-loader" class="loader hidden">
+                    <div class="spinner"></div>
+                    <p id="loader-text">AI가 단어를 분석 중입니다...</p>
+                </div>
+            </div>
+
+            <div id="word-list-container" class="word-list-card hidden">
+                <h3>✨ 오늘의 단어 목록</h3>
+                <div class="word-list-header">
+                    <span>단어</span>
+                    <span>뜻</span>
+                </div>
+                <ul id="today-words" class="word-list"></ul>
+                <div class="word-list-actions">
+                    <button id="add-word-btn" class="btn btn-secondary btn-sm">+ 단어 추가</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. PDF Generation Section -->
+        <section id="output-section" class="card fade-in">
+            <div class="card-header">
+                <span class="step-badge">STEP 2</span>
+                <h2>시험지 & 정답지 생성</h2>
+                <p>추출된 단어로 나만의 시험지를 만들어 보세요.</p>
+            </div>
+
+            <div class="options-grid">
+                <div class="option-item">
+                    <label>시험지 종류</label>
+                    <div class="custom-select">
+                        <select id="test-type">
+                            <option value="word-test">단어 쓰기 (뜻 보고 영단어 쓰기)</option>
+                            <option value="meaning-test">뜻 쓰기 (영단어 보고 뜻 쓰기)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="option-item">
+                    <label>시험지 제목</label>
+                    <input type="text" id="test-title" placeholder="예: 3월 1일 단어 테스트">
+                </div>
+            </div>
+
+            <button id="generate-pdf" class="btn btn-glow btn-full">PDF 시험지 & 정답지 생성하기</button>
+        </section>
+
+        <!-- 3. Game Section -->
+        <section id="play-section" class="card fade-in">
+            <div class="card-header">
+                <span class="step-badge">STEP 3</span>
+                <h2>단어 게임: 악당 퇴치</h2>
+                <p>게임을 통해 재미있게 단어를 복습하세요!</p>
+            </div>
+
+            <div class="game-container">
+                <div class="game-hud">
+                    <div class="score-badge">SCORE: <span id="game-score">0</span></div>
+                    <div class="game-mode-badge" id="current-mode">A모드</div>
+                </div>
+                <div class="canvas-wrapper">
+                    <canvas id="game-canvas"></canvas>
+                    <div id="game-start-overlay" class="overlay">
+                        <div class="overlay-content">
+                            <h3>준비되셨나요?</h3>
+                            <div class="game-options">
+                                <select id="game-mode">
+                                    <option value="word-mode">A모드 (단어 입력)</option>
+                                    <option value="meaning-mode">B모드 (뜻 입력)</option>
+                                </select>
+                            </div>
+                            <button id="start-game-btn" class="btn btn-glow">게임 시작</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="game-input-area">
+                    <input type="text" id="game-input" placeholder="정답을 입력하고 Enter를 누르세요" disabled>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>&copy; 2026 WORDBOOM. All rights reserved.</p>
+    </footer>
+
+    <!-- Scripts -->
+    <script type="module" src="main.js"></script>
 </body>
 </html>
