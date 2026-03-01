@@ -3,11 +3,12 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- State ---
     let wordList = []; // Array of {word, meaning}
+    let currentDoc = null; // Store current jsPDF instance
     let gameState = {
         score: 0,
         enemies: [],
         isPlaying: false,
-        mode: 'word-mode', // 'word-mode' or 'meaning-mode'
+        mode: 'word-mode', 
         lastTime: 0,
         spawnTimer: 0
     };
@@ -24,6 +25,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const testTitleInput = document.getElementById('test-title');
     const addWordBtn = document.getElementById('add-word-btn');
 
+    const pdfModal = document.getElementById('pdf-modal');
+    const pdfFrame = document.getElementById('pdf-frame');
+    const closeModalBtn = document.getElementById('close-modal');
+    const downloadPdfBtn = document.getElementById('download-pdf-btn');
+
     const gameCanvas = document.getElementById('game-canvas');
     const ctx = gameCanvas.getContext('2d');
     const gameInput = document.getElementById('game-input');
@@ -33,12 +39,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const gameModeSelect = document.getElementById('game-mode');
     const currentModeBadge = document.getElementById('current-mode');
 
-    // --- 1. AI Word Extraction (Mock for Demo, structure ready for API) ---
+    // --- 1. AI Word Extraction with Tesseract.js ---
     imageUpload.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
-        // Show preview
+        // Show image preview
         const reader = new FileReader();
         reader.onload = (event) => {
             previewImage.src = event.target.result;
@@ -46,26 +52,61 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         reader.readAsDataURL(file);
 
-        // Simulate AI Processing
+        // OCR Processing
         ocrLoader.classList.remove('hidden');
         wordListContainer.classList.add('hidden');
         
-        // In a real scenario, you'd send 'file' to Gemini API here.
-        // For this demo, we'll simulate a high-quality extraction after 2 seconds.
-        setTimeout(() => {
-            const mockWords = [
-                { word: 'Persistent', meaning: '끈기 있는, 지속적인' },
-                { word: 'Authentic', meaning: '진실된, 진짜의' },
-                { word: 'Innovative', meaning: '혁신적인' },
-                { word: 'Collaboration', meaning: '협력, 협업' },
-                { word: 'Versatile', meaning: '다재다능한' },
-                { word: 'Perspective', meaning: '관점, 시각' }
-            ];
+        try {
+            const worker = await Tesseract.createWorker({
+                logger: m => {
+                    if (m.status === 'recognizing text') {
+                        document.getElementById('loader-text').textContent = `AI가 단어를 분석 중입니다... ${(m.progress * 100).toFixed(0)}%`;
+                    }
+                }
+            });
+            await worker.loadLanguage('eng+kor');
+            await worker.initialize('eng+kor');
             
-            updateWordList(mockWords);
+            // Layout analysis helps find columns
+            const { data: { lines } } = await worker.recognize(file);
+            const extractedWords = [];
+
+            lines.forEach(line => {
+                // Heuristic: Try to split by common delimiters or large spaces
+                const text = line.text.trim();
+                if (text.length < 3) return;
+
+                // Split by colon, dash, or multiple spaces
+                let parts = text.split(/[:\-\t]|\s{2,}/);
+                if (parts.length >= 2) {
+                    const word = parts[0].trim();
+                    const meaning = parts.slice(1).join(' ').trim();
+                    if (word && meaning) {
+                        extractedWords.push({ word, meaning });
+                    }
+                } else {
+                    // Fallback for single line without clear delimiter
+                    // (Might be just a word or a meaning, user can edit)
+                    extractedWords.push({ word: text, meaning: '' });
+                }
+            });
+
+            await worker.terminate();
+
+            if (extractedWords.length > 0) {
+                updateWordList(extractedWords);
+            } else {
+                alert('이미지에서 단어를 찾지 못했습니다. 직접 추가하거나 다른 이미지를 시도해 보세요.');
+                updateWordList([{ word: '', meaning: '' }]);
+            }
+        } catch (error) {
+            console.error(error);
+            alert('AI 분석 중 오류가 발생했습니다.');
+        } finally {
             ocrLoader.classList.add('hidden');
             wordListContainer.classList.remove('hidden');
-        }, 2000);
+            document.getElementById('loader-text').textContent = "AI가 단어를 분석 중입니다...";
+        }
     });
 
     function updateWordList(words) {
@@ -79,15 +120,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const li = document.createElement('li');
             li.className = 'word-item fade-in';
             li.innerHTML = `
-                <input type="text" value="${item.word}" data-index="${index}" data-type="word">
-                <input type="text" value="${item.meaning}" data-index="${index}" data-type="meaning">
+                <input type="text" value="${item.word}" data-index="${index}" data-type="word" placeholder="단어">
+                <input type="text" value="${item.meaning}" data-index="${index}" data-type="meaning" placeholder="뜻">
                 <button class="delete-btn" data-index="${index}">✕</button>
             `;
             todayWordsUl.appendChild(li);
         });
     }
 
-    // Handle editing and deleting words
     todayWordsUl.addEventListener('input', (e) => {
         const index = e.target.dataset.index;
         const type = e.target.dataset.type;
@@ -107,7 +147,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderWordList();
     });
 
-    // --- 2. PDF Generation ---
+    // --- 2. PDF Preview & Generation ---
     generatePdfBtn.addEventListener('click', () => {
         if (wordList.length === 0) {
             alert('먼저 단어를 추출하거나 추가해주세요!');
@@ -119,14 +159,29 @@ document.addEventListener('DOMContentLoaded', () => {
         const testType = testTypeSelect.value;
         const title = testTitleInput.value || '오늘의 단어 테스트';
 
-        // 1. Generate Test Sheet
+        // Page 1: Test Sheet
         generatePage(doc, title, testType, false);
         
-        // 2. Generate Answer Key on a new page
+        // Page 2: Answer Key
         doc.addPage();
         generatePage(doc, `${title} (정답지)`, testType, true);
 
-        doc.save(`${title}.pdf`);
+        currentDoc = doc;
+        const blobUri = doc.output('bloburl');
+        pdfFrame.src = blobUri;
+        pdfModal.classList.remove('hidden');
+    });
+
+    closeModalBtn.addEventListener('click', () => {
+        pdfModal.classList.add('hidden');
+        pdfFrame.src = '';
+    });
+
+    downloadPdfBtn.addEventListener('click', () => {
+        if (currentDoc) {
+            const title = testTitleInput.value || '오늘의 단어 테스트';
+            currentDoc.save(`${title}.pdf`);
+        }
     });
 
     function generatePage(doc, title, type, isAnswerKey) {
@@ -176,8 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
             this.answerText = mode === 'word-mode' ? word : meaning;
             this.x = gameCanvas.width;
             this.y = Math.random() * (gameCanvas.height - 60) + 30;
-            this.speed = 1.5 + (Math.random() * 1);
-            this.width = ctx.measureText(this.targetText).width + 40;
+            this.speed = 1.2 + (Math.random() * 0.8);
             this.color = `oklch(70% 0.2 ${Math.random() * 360})`;
         }
 
@@ -189,18 +243,12 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.fillStyle = 'rgba(255,255,255,0.1)';
             ctx.strokeStyle = this.color;
             ctx.lineWidth = 2;
-            
-            // Draw box
             const boxWidth = ctx.measureText(this.targetText).width + 30;
             roundRect(ctx, this.x, this.y - 20, boxWidth, 40, 10, true, true);
-
-            // Draw text
             ctx.fillStyle = 'white';
             ctx.font = 'bold 16px Pretendard';
             ctx.textAlign = 'center';
             ctx.fillText(this.targetText, this.x + boxWidth/2, this.y + 6);
-            
-            // Neon glow
             ctx.shadowBlur = 10;
             ctx.shadowColor = this.color;
         }
@@ -225,44 +273,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function spawnEnemy() {
         if (wordList.length === 0) return;
-        const randomWord = wordList[Math.floor(Math.random() * wordList.length)];
+        const validWords = wordList.filter(w => w.word && w.meaning);
+        if (validWords.length === 0) return;
+        const randomWord = validWords[Math.floor(Math.random() * validWords.length)];
         gameState.enemies.push(new Enemy(randomWord.word, randomWord.meaning, gameState.mode));
     }
 
     function gameLoop(timestamp) {
         if (!gameState.isPlaying) return;
-
         const deltaTime = timestamp - gameState.lastTime;
         gameState.lastTime = timestamp;
-
         ctx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
-
-        // Spawn logic
         gameState.spawnTimer += deltaTime;
         if (gameState.spawnTimer > 2000) {
             spawnEnemy();
             gameState.spawnTimer = 0;
         }
-
-        // Update and draw enemies
         for (let i = gameState.enemies.length - 1; i >= 0; i--) {
             const enemy = gameState.enemies[i];
             enemy.update();
             enemy.draw();
-
-            // Check Game Over
-            if (enemy.x < -100) {
+            if (enemy.x < -200) {
                 endGame();
                 return;
             }
         }
-
         requestAnimationFrame(gameLoop);
     }
 
     function startGame() {
-        if (wordList.length === 0) {
-            alert('게임을 시작하려면 먼저 단어를 추가하세요!');
+        const validWords = wordList.filter(w => w.word && w.meaning);
+        if (validWords.length === 0) {
+            alert('게임을 시작하려면 최소 하나 이상의 유효한 단어가 필요합니다!');
             return;
         }
         gameState.isPlaying = true;
@@ -271,15 +313,12 @@ document.addEventListener('DOMContentLoaded', () => {
         gameState.spawnTimer = 0;
         gameState.lastTime = performance.now();
         gameState.mode = gameModeSelect.value;
-        
         gameScoreDisplay.textContent = '0';
         currentModeBadge.textContent = gameState.mode === 'word-mode' ? 'A모드 (단어입력)' : 'B모드 (뜻입력)';
-        
         gameStartOverlay.classList.add('hidden');
         gameInput.disabled = false;
         gameInput.value = '';
         gameInput.focus();
-        
         requestAnimationFrame(gameLoop);
     }
 
@@ -294,9 +333,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Enter') {
             const input = gameInput.value.trim().toLowerCase();
             let found = false;
-
             for (let i = 0; i < gameState.enemies.length; i++) {
-                if (gameState.enemies[i].answerText.toLowerCase() === input) {
+                if (gameState.enemies[i].answerText.trim().toLowerCase() === input) {
                     gameState.enemies.splice(i, 1);
                     gameState.score += 10;
                     gameScoreDisplay.textContent = gameState.score;
@@ -304,9 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     break;
                 }
             }
-
             gameInput.value = '';
-            // Visual feedback for wrong answer could go here
         }
     });
 

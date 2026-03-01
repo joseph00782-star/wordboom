@@ -11,12 +11,29 @@
     <!-- Style -->
     <link rel="stylesheet" href="style.css">
     <!-- Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
     <div class="bg-gradient"></div>
     <div class="bg-texture"></div>
+
+    <!-- PDF Preview Modal -->
+    <div id="pdf-modal" class="modal hidden">
+        <div class="modal-content glass">
+            <div class="modal-header">
+                <h3>📄 시험지 미리보기</h3>
+                <button id="close-modal" class="close-btn">✕</button>
+            </div>
+            <div class="modal-body">
+                <iframe id="pdf-frame"></iframe>
+            </div>
+            <div class="modal-footer">
+                <button id="download-pdf-btn" class="btn btn-primary">PDF 다운로드</button>
+            </div>
+        </div>
+    </div>
 
     <nav class="navbar">
         <div class="nav-container">
