@@ -1,8 +1,4 @@
 // --- WORDBOOM Core Script ---
-// Note: In a production environment, GPT-4o mini would be called via a backend.
-// For this standalone web version, we use Tesseract.js for real on-device OCR.
-
-import Tesseract from 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js';
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- State ---
@@ -44,50 +40,46 @@ document.addEventListener('DOMContentLoaded', () => {
     const gameScoreDisplay = document.getElementById('game-score');
     const gameModeSelect = document.getElementById('game-mode-select');
 
-    // --- 1. Real AI Extraction with Tesseract.js ---
+    const settingsBtn = document.getElementById('settings-btn');
+    const settingsModal = document.getElementById('settings-modal');
+    const closeSettings = document.getElementById('close-settings');
+    const saveSettings = document.getElementById('save-settings');
+    const apiKeyInput = document.getElementById('api-key-input');
+
+    // --- Settings Logic ---
+    apiKeyInput.value = localStorage.getItem('openai_api_key') || '';
+
+    settingsBtn.addEventListener('click', () => settingsModal.classList.remove('hidden'));
+    closeSettings.addEventListener('click', () => settingsModal.classList.add('hidden'));
+    saveSettings.addEventListener('click', () => {
+        localStorage.setItem('openai_api_key', apiKeyInput.value.trim());
+        settingsModal.classList.add('hidden');
+        alert('API 키가 저장되었습니다.');
+    });
+
+    // --- 1. AI Extraction with GPT-4o mini ---
     imageUpload.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
+        const apiKey = localStorage.getItem('openai_api_key');
+        if (!apiKey) {
+            alert('먼저 설정(⚙️)에서 OpenAI API Key를 입력해주세요.');
+            settingsModal.classList.remove('hidden');
+            imageUpload.value = '';
+            return;
+        }
+
         // Show loading
         uploadStatus.classList.remove('hidden');
         dataEditContainer.classList.add('hidden');
-        uploadStatus.querySelector('p').textContent = 'AI가 이미지를 분석 중입니다... (Tesseract OCR)';
+        uploadStatus.querySelector('p').textContent = 'GPT-4o mini가 이미지를 분석 중입니다...';
 
         try {
-            const result = await Tesseract.recognize(file, 'eng+kor', {
-                logger: m => {
-                    if (m.status === 'recognizing text') {
-                        uploadStatus.querySelector('p').textContent = `분석 중: ${Math.round(m.progress * 100)}%`;
-                    }
-                }
-            });
-
-            const text = result.data.text;
-            const lines = text.split('\n').filter(line => line.trim().length > 0);
+            const base64Image = await fileToBase64(file);
+            const extractedWords = await extractWordsWithGPT(base64Image, apiKey);
             
-            const extracted = [];
-            lines.forEach(line => {
-                // Heuristic parsing: split by common delimiters
-                let parts = line.split(/[:\-\t]|\s{2,}/);
-                if (parts.length >= 2) {
-                    extracted.push({
-                        word: parts[0].trim(),
-                        meaning: parts.slice(1).join(' ').trim()
-                    });
-                } else {
-                    // Try space-based split if only one delimiter-less line
-                    let words = line.trim().split(/\s+/);
-                    if (words.length >= 2) {
-                        extracted.push({
-                            word: words[0],
-                            meaning: words.slice(1).join(' ')
-                        });
-                    }
-                }
-            });
-
-            wordData = extracted.length > 0 ? extracted : [{word: '', meaning: ''}];
+            wordData = extractedWords;
             renderTable();
             renderPreview();
             updateStats();
@@ -97,10 +89,68 @@ document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
         } catch (error) {
             console.error(error);
-            alert('이미지 분석 중 오류가 발생했습니다.');
+            alert('분석 중 오류가 발생했습니다: ' + error.message);
             uploadStatus.classList.add('hidden');
         }
     });
+
+    async function fileToBase64(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = error => reject(error);
+        });
+    }
+
+    async function extractWordsWithGPT(base64Image, apiKey) {
+        const prompt = `너는 단어장 이미지 전문 스캐너야. 이 이미지에서 영단어와 한국어 뜻을 추출해줘.
+
+규칙:
+오타가 있다면 문맥에 맞게 수정해 (예: 'apple'이 'appe'로 보이면 'apple'로 수정).
+결과는 반드시 다른 설명 없이 오직 JSON 형식으로만 출력해.
+JSON 구조: { "words": [{"word": "단어", "mean": "뜻"}] }
+만약 단어와 뜻이 매칭되지 않는 텍스트는 무시해.`;
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: prompt },
+                            {
+                                type: 'image_url',
+                                image_url: { url: base64Image }
+                            }
+                        ]
+                    }
+                ],
+                response_format: { type: "json_object" },
+                max_tokens: 2000
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error?.message || 'API 호출 실패');
+        }
+
+        const result = await response.json();
+        const content = JSON.parse(result.choices[0].message.content);
+        
+        // Map "mean" to "meaning" to match existing state structure
+        return content.words.map(item => ({
+            word: item.word,
+            meaning: item.mean
+        }));
+    }
 
     function renderTable() {
         wordTableBody.innerHTML = '';
@@ -268,13 +318,11 @@ document.addEventListener('DOMContentLoaded', () => {
             this.y = -60;
             this.speed = gameState.speed + Math.random() * 0.4;
             this.color = `hsl(${Math.random() * 360}, 70%, 60%)`;
-            this.angle = 0;
             this.pulse = 0;
         }
 
         update() {
             this.y += this.speed;
-            this.angle += 0.02;
             this.pulse += 0.1;
         }
 
@@ -329,7 +377,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function spawnEnemy() {
         if (wordData.length === 0) return;
-        const validWords = wordData.filter(w => w.word.trim() && w.meaning.trim());
+        const validWords = wordData.filter(w => w.word?.trim() && w.meaning?.trim());
         if (validWords.length === 0) return;
         const randomWord = validWords[Math.floor(Math.random() * validWords.length)];
         gameState.enemies.push(new Enemy(randomWord, gameState.mode));
@@ -364,7 +412,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function startGame() {
-        const validWords = wordData.filter(w => w.word.trim() && w.meaning.trim());
+        const validWords = wordData.filter(w => w.word?.trim() && w.meaning?.trim());
         if (validWords.length === 0) return alert('게임을 시작하려면 최소 한 개의 단어가 필요합니다.');
         
         gameState = {

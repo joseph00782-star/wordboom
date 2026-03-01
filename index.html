@@ -28,10 +28,31 @@
                 <li><a href="#step3-section">3. 단어 폭탄 게임</a></li>
             </ul>
             <div class="nav-actions">
+                <button id="settings-btn" class="btn-icon" title="API 설정"><i data-lucide="settings"></i></button>
                 <span id="word-count-badge" class="badge">0 words</span>
             </div>
         </div>
     </nav>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal hidden">
+        <div class="modal-content glass sm">
+            <div class="modal-header">
+                <h3>⚙️ API 설정</h3>
+                <button id="close-settings" class="close-btn">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="control-group">
+                    <label>OpenAI API Key</label>
+                    <input type="password" id="api-key-input" placeholder="sk-...">
+                    <p class="help-text">GPT-4o mini를 사용하여 단어를 정확하게 추출합니다. 키는 브라우저에만 저장됩니다.</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="save-settings" class="btn btn-primary btn-full">저장하기</button>
+            </div>
+        </div>
+    </div>
 
     <main class="container">
         <!-- Step 1: Input & Data Table -->
